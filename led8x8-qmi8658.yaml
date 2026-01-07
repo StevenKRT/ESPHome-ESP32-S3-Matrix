@@ -1,0 +1,431 @@
+substitutions:
+    devicename: "led8x8-qmi8658"
+    friendly_name: "8x8 pixel matrix"
+    device_description: "(LED Pixel matrix 8x8, ESP32-S3)"
+    xscrollpadding: "4"
+
+esphome:
+    name: ${devicename}
+    friendly_name: ${friendly_name}
+    comment: "${device_description}"
+    platformio_options:
+        board_build.flash_mode: dio
+    libraries:
+        - "Wire"
+        - "SPI"
+        - "SensorLib@0.2.1"
+    on_boot:
+        priority: -100
+        then:
+            - light.turn_on:
+                  id: pixel_matrix
+                  brightness: !lambda |-
+                      return id(matrix_brightness).state / 100.0f;
+
+esp32:
+    board: esp32-s3-devkitc-1
+    framework:
+        type: arduino
+
+logger:
+
+wifi:
+    ssid: !secret wifi_ssid
+    password: !secret wifi_password
+    ap:
+        ssid: "Led-Matrix Fallback Hotspot"
+        password: "xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+captive_portal:
+
+api:
+    encryption:
+        key: "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+
+ota:
+    - platform: esphome
+      password: "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+
+#web_server:
+
+external_components:
+    - source: github://dala318/esphome-qmi8658
+
+i2c:
+    sda: GPIO11
+    scl: GPIO12
+    scan: true
+    frequency: 400kHz
+
+#sensor:
+#    - platform: qmi8658
+#      address: 0x6B
+      # interrupt_pin_2: GPIO13
+#      acceleration_x:
+#          name: "QMI8658 Acceleration X"
+#      acceleration_y:
+#          name: "QMI8658 Acceleration Y"
+#      acceleration_z:
+#          name: "QMI8658 Acceleration Z"
+#      gyroscope_x:
+#          name: "QMI8658 Gyro X"
+#      gyroscope_y:
+#          name: "QMI8658 Gyro Y"
+#      gyroscope_z:
+#          name: "QMI8658 Gyro Z"
+#      temperature:
+#          name: "QMI8658 Temperature"
+#          filters:
+#              - offset: 34.0
+#      update_interval: 5s
+
+globals:
+    - id: display_enabled
+      type: bool
+      restore_value: yes
+      initial_value: "false"
+
+    - id: mode_id
+      type: int
+      restore_value: yes
+      initial_value: "0" # 0 = Aus
+
+    - id: pending_display_enabled
+      type: bool
+      restore_value: no
+      initial_value: "false"
+
+    - id: pending_mode_id
+      type: int
+      restore_value: no
+      initial_value: "0"
+
+    - id: fill_r
+      type: int
+      restore_value: yes
+      initial_value: "255"
+
+    - id: fill_g
+      type: int
+      restore_value: yes
+      initial_value: "255"
+
+    - id: fill_b
+      type: int
+      restore_value: yes
+      initial_value: "255"
+
+    - id: fill_brightness
+      type: float
+      restore_value: yes
+      initial_value: "0.10"
+
+script:
+    - id: apply_mode_debounced
+      mode: restart
+      then:
+          - delay: 300ms
+          - lambda: |-
+                id(display_enabled) = id(pending_display_enabled);
+                id(mode_id) = id(pending_mode_id);
+          - component.update: pixel_display
+
+select:
+    - platform: template
+      name: "Display Mode"
+      id: display_mode
+      options:
+          - "Aus"
+          - "Bullseye"
+          - "Heart"
+          - "Check"
+          - "Cross"
+          - "Bell"
+          - "Pflanzenlicht"
+          - "Stop"
+          - "L"
+          - "Farbe"
+      initial_option: "Aus"
+      optimistic: true
+      set_action:
+          - lambda: |-
+                if (x == "Aus") {
+                    id(pending_display_enabled) = false;
+                    id(pending_mode_id) = 0;
+                } else {
+                    id(pending_display_enabled) = true;
+
+                    if (x == "Bullseye") id(pending_mode_id) = 1;
+                    else if (x == "Heart") id(pending_mode_id) = 2;
+                    else if (x == "Check") id(pending_mode_id) = 3;
+                    else if (x == "Cross") id(pending_mode_id) = 4;
+                    else if (x == "Bell") id(pending_mode_id) = 5;
+                    else if (x == "Pflanzenlicht") id(pending_mode_id) = 6;
+                    else if (x == "Stop") id(pending_mode_id) = 7;
+                    else if (x == "L") id(pending_mode_id) = 8;
+                    else if (x == "Farbe") id(pending_mode_id) = 10;
+                }
+          - script.execute: apply_mode_debounced
+
+number:
+    - platform: template
+      name: "Matrix Brightness"
+      id: matrix_brightness
+      min_value: 1
+      max_value: 100
+      step: 1
+      optimistic: true
+      initial_value: 10
+      set_action:
+          - light.turn_on:
+                id: pixel_matrix
+                brightness: !lambda |-
+                    return x / 100.0f;
+
+light:
+    - platform: neopixelbus
+      name: "NeoPixel Light"
+      id: pixel_matrix
+      internal: true
+      type: RGB
+      variant: WS2811
+      pin: GPIO14
+      num_leds: 64
+      color_correct: [40%, 40%, 40%]
+      restore_mode: RESTORE_DEFAULT_ON
+      default_transition_length: 0s
+      gamma_correct: 1.0
+    - platform: rgb
+      name: "Matrix Farbe"
+      id: matrix_color_fill
+      red: fill_red_out
+      green: fill_green_out
+      blue: fill_blue_out
+      restore_mode: RESTORE_DEFAULT_OFF
+      on_state:
+          - lambda: |-
+                auto v = id(matrix_color_fill).current_values;
+                id(fill_r) = (int) lroundf(v.get_red() * 255.0f);
+                id(fill_g) = (int) lroundf(v.get_green() * 255.0f);
+                id(fill_b) = (int) lroundf(v.get_blue() * 255.0f);
+                id(fill_brightness) = v.get_brightness();
+
+                id(display_enabled) = true;
+                id(mode_id) = 10;
+          - component.update: pixel_display
+      on_turn_off:
+          - lambda: |-
+                id(display_enabled) = false;
+          - component.update: pixel_display
+
+output:
+    - platform: template
+      id: fill_red_out
+      type: float
+      write_action:
+          - lambda: |-
+                id(fill_r) = (int) lroundf(state * 255.0f);
+
+    - platform: template
+      id: fill_green_out
+      type: float
+      write_action:
+          - lambda: |-
+                id(fill_g) = (int) lroundf(state * 255.0f);
+
+    - platform: template
+      id: fill_blue_out
+      type: float
+      write_action:
+          - lambda: |-
+                id(fill_b) = (int) lroundf(state * 255.0f);
+
+display:
+    - platform: addressable_light
+      id: pixel_display
+      addressable_light_id: pixel_matrix
+      width: 8
+      height: 8
+      pixel_mapper: |-
+            return (y * 8) + x;
+      rotation: 0°
+      update_interval: 1h
+      auto_clear_enabled: true
+      lambda: |-
+            if (!id(display_enabled)) {
+                return;
+            }
+
+            const int W = 8;
+            const int H = 8;
+
+            auto clear_all = [&]() {
+                it.filled_rectangle(0, 0, W, H, Color(0, 0, 0));
+            };
+
+            auto draw_mask = [&](const uint8_t mask[8], const Color &c) {
+                for (int y = 0; y < 8; y++) {
+                    for (int x = 0; x < 8; x++) {
+                        if ((mask[y] >> (7 - x)) & 0x01) {
+                            it.draw_pixel_at(x, y, c);
+                        }
+                    }
+                }
+            };
+
+            auto draw_mask_two_tone = [&](const uint8_t fill[8], const uint8_t highlight[8], const Color &c_fill, const Color &c_hi) {
+                for (int y = 0; y < 8; y++) {
+                    for (int x = 0; x < 8; x++) {
+                        bool on_fill = (fill[y] >> (7 - x)) & 0x01;
+                        bool on_hi = (highlight[y] >> (7 - x)) & 0x01;
+                        if (on_fill) it.draw_pixel_at(x, y, c_fill);
+                        if (on_hi) it.draw_pixel_at(x, y, c_hi);
+                    }
+                }
+            };
+
+            clear_all();
+
+            if (id(mode_id) == 0) {
+                return;
+            }
+
+            if (id(mode_id) == 1) { // Bullseye
+                Color red = Color(0x5F0000);
+                Color green = Color(0x005F00);
+                Color blue = Color(0x00005F);
+
+                it.rectangle(0, 0, 8, 8, red);
+                it.rectangle(1, 1, 6, 6, green);
+                it.rectangle(2, 2, 4, 4, blue);
+                it.rectangle(3, 3, 2, 2, red);
+                return;
+            }
+
+            if (id(mode_id) == 2) { // Heart (icon-like)
+                const uint8_t mask[8] = {
+                    0b01100110,
+                    0b11100111,
+                    0b11111111,
+                    0b11111111,
+                    0b11111111,
+                    0b01111110,
+                    0b00111100,
+                    0b00011000
+                };
+                draw_mask(mask, Color(220, 0, 20));
+                return;
+            }
+
+            if (id(mode_id) == 3) { // Check
+                const uint8_t mask[8] = {
+                    0b00000000,
+                    0b00000010,
+                    0b00000110,
+                    0b01001100,
+                    0b01011000,
+                    0b00110000,
+                    0b00100000,
+                    0b00000000
+                };
+                draw_mask(mask, Color(0, 220, 60));
+                return;
+            }
+
+            if (id(mode_id) == 4) { // Cross (neu)
+                const uint8_t mask[8] = {
+                    0b11000011,
+                    0b11100111,
+                    0b01111110,
+                    0b00111100,
+                    0b00111100,
+                    0b01111110,
+                    0b11100111,
+                    0b11000011
+                };
+                draw_mask(mask, Color(230, 0, 30));
+                return;
+            }
+
+            if (id(mode_id) == 5) { // Bell
+                const uint8_t fill[8] = {
+                    0b00011000,
+                    0b00111100,
+                    0b00111100,
+                    0b01111110,
+                    0b01111110,
+                    0b11111111,
+                    0b00011000,
+                    0b00011000
+                };
+                const uint8_t hi[8] = {
+                    0b00001000,
+                    0b00010000,
+                    0b00010000,
+                    0b00100000,
+                    0b00100000,
+                    0b01000000,
+                    0b00001000,
+                    0b00000000
+                };
+                draw_mask_two_tone(fill, hi, Color(255, 190, 0), Color(255, 240, 180));
+                return;
+            }
+
+            if (id(mode_id) == 6) { // Pflanzenlicht (nur Grow-Farbfläche)
+                it.filled_rectangle(0, 0, W, H, Color(255, 0, 180));
+                return;
+            }
+
+            if (id(mode_id) == 7) { // Stop
+                const uint8_t fill[8] = {
+                    0b00111100,
+                    0b01111110,
+                    0b11111111,
+                    0b11111111,
+                    0b11111111,
+                    0b11111111,
+                    0b01111110,
+                    0b00111100
+                };
+                const uint8_t hi[8] = {
+                    0b00000000,
+                    0b00000000,
+                    0b00000000,
+                    0b00111100,
+                    0b00111100,
+                    0b00000000,
+                    0b00000000,
+                    0b00000000
+                };
+                draw_mask_two_tone(fill, hi, Color(220, 0, 20), Color(255, 255, 255));
+                return;
+            }
+
+            if (id(mode_id) == 8) { // L (neu, klar)
+                const uint8_t mask[8] = {
+                    0b00000000,
+                    0b01000000,
+                    0b01000000,
+                    0b01000000,
+                    0b01000000,
+                    0b01000000,
+                    0b01111100,
+                    0b00000000
+                };
+                draw_mask_two_tone(mask, mask, Color(0, 200, 255), Color(0, 200, 255));
+                return;
+            }
+
+            if (id(mode_id) == 10) { // Farbe (vollflächig)
+                float br = id(fill_brightness);
+                if (br < 0.0f) br = 0.0f;
+                if (br > 1.0f) br = 1.0f;
+
+                int r = (int) lroundf(id(fill_r) * br);
+                int g = (int) lroundf(id(fill_g) * br);
+                int b = (int) lroundf(id(fill_b) * br);
+
+                it.filled_rectangle(0, 0, 8, 8, Color(r, g, b));
+                return;
+            }
