@@ -39,6 +39,9 @@ Die Matrix ist vollständig in Home Assistant integriert und eignet sich als vis
 AliExpress:  
 [ESP32-S3-Matrix wifi bluetooth entwicklung board 8x8 RGB-LED mit qst haltung gyro sensor qmi8658c für arduino python](https://s.click.aliexpress.com/e/_EQnYzJ2)
 
+3D-Druck:
+[ESP32 S3 Matrix X8 Gehäuse](https://makerworld.com/de/models/1138549-esp32-s3-matrix-x8-case#profileId-1140483)
+
 ---
 
 ## Technische Parameter
